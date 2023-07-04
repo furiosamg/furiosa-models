@@ -21,14 +21,6 @@ def test_mlcommons_resnet50():
     )
 
 
-@pytest.mark.asyncio
-async def test_mlcommons_resnet50_async():
-    sanity_check_for_dvc_file(
-        await ResNet50.load(),
-        next((DATA_DIRECTORY_BASE / "mlcommons_resnet50_v1.5").glob("*.onnx.dvc")),
-    )
-
-
 def test_ssd_mobilenet():
     sanity_check_for_dvc_file(
         SSDMobileNet.load(use_native=False),

@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import hashlib
+import io
 import logging
 import os
 from pathlib import Path
@@ -76,6 +78,54 @@ def removesuffix(base: str, suffix: str) -> str:
     return base
 
 
+def factor_of_1MB(filesize, num_parts):
+    x = filesize / int(num_parts)
+    y = x % 1048576
+    return int(x + 1048576 - y)
+
+
+def possible_partsizes(filesize, num_parts):
+    return lambda partsize: partsize < filesize and (float(filesize) / float(partsize)) <= num_parts
+
+
+def calc_etag(data, partsize=8388608):
+    md5_digests = []
+    stream = io.BytesIO(data)
+    while True:
+        chunk = stream.read(partsize)
+        if not chunk:
+            break
+        md5_digests.append(hashlib.md5(chunk).digest())
+    return hashlib.md5(b''.join(md5_digests)).hexdigest() + '-' + str(len(md5_digests))
+
+
+def verify_etag(data: str, etag: str) -> bool:
+    if '-' not in etag:
+        return hashlib.md5(data).hexdigest() == etag
+
+    num_parts = int(etag.split('-')[1])
+
+    partsizes = [  ## Default Partsizes Map
+        8388608,  # aws_cli/boto3
+        15728640,  # s3cmd
+        factor_of_1MB(len(data), num_parts),  # Used by many clients to upload large files
+        1024 * 1024 * num_parts,
+    ]
+
+    for partsize in filter(possible_partsizes(len(data), num_parts), partsizes):
+        et = calc_etag(data, partsize)
+        print(et)
+        if etag == et:
+            return True
+    return False
+
+
+async def get_s3_md5sum_from_etag_header(uri: str) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.head(uri) as resp:
+            return resp.headers["ETag"].strip('"')
+
+
 class ArtifactResolver:
     def __init__(self, uri: Union[str, Path]):
         self.uri = Path(uri)
@@ -106,7 +156,9 @@ class ArtifactResolver:
     ) -> str:
         return f"{http_endpoint}/{directory}/{filename}"
 
-    async def read(self) -> bytes:
+    async def _read(self) -> bytes:
+        directory, filename, size = self.parse_dvc_file(self.uri)
+        url = self.get_url(directory, filename)
         # Try to find local cached file
         local_cache_path = CACHE_DIRECTORY_BASE / get_version_info() / (self.uri.name)
         if local_cache_path.exists():
@@ -121,7 +173,6 @@ class ArtifactResolver:
                 return await f.read()
 
         module_logger.debug(f"{self.uri} not exists, resolving DVC")
-        directory, filename, size = self.parse_dvc_file(self.uri)
         if self.dvc_cache_path is not None:
             cached: Path = self.dvc_cache_path / directory / filename
             if cached.exists():
@@ -135,7 +186,6 @@ class ArtifactResolver:
 
         # Fetching from remote
         async with aiohttp.ClientSession() as session:
-            url = self.get_url(directory, filename)
             module_logger.debug(f"Fetching from remote: {url}")
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -148,6 +198,16 @@ class ArtifactResolver:
                 async with aiofiles.open(caching_path, mode="wb") as f:
                     await f.write(data)
                 return data
+
+    async def read(self) -> bytes:
+        directory, filename, _ = self.parse_dvc_file(self.uri)
+        url = self.get_url(directory, filename)
+        etag = await get_s3_md5sum_from_etag_header(url)
+        data = await self._read()
+
+        if not verify_etag(data, etag):
+            raise Exception(f"ETag mismatch {etag}")
+        return data
 
 
 def resolve_file(src_name: str, extension: str) -> bytes:
