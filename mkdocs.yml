@@ -50,3 +50,8 @@ plugins:
         options:
           show_root_heading: false
           show_bases: false
+- i18n:
+    default_language: en
+    languages:
+      en: English
+      ko: 한국어
