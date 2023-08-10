@@ -6,6 +6,8 @@ theme:
   name: "material"
   features:
     - navigation.sections
+  icon:
+    alternate: "material/web"
 
 repo_name: furiosa-ai/furiosa-models
 repo_url: https://github.com/furiosa-ai/furiosa-models
