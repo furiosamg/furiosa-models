@@ -4,20 +4,20 @@ In `furiosa-models` project, `Model` is the first class object, and it represent
 This document explains what [`Model`][furiosa.models.types.Model] object offers and their usages.
 
 ## Loading a pre-trained model
-To load a pre-trained neural-network model, you need to call `load()` method.
+To load a pre-trained neural-network model, you need to call the `Model` object.
 Since the sizes of pre-trained model weights vary from tens to hundreds megabytes,
-the model images are not included in Python package. When `load()` method is called, a pre-trained model will be
+the model images are not included in Python package. First time the model object is called, a pre-trained model will be
 fetched over the network. It takes some time (usually few seconds) depending on models and network conditions.
 Once the model images are fetched, they will be cached on a local disk.
 
-=== "Blocking API"
+=== "Load module"
     ```python
     --8<-- "docs/examples/loading_model.py"
     ```
 
 <a name="accessing_artifacts_and_metadata"></a>
 ## Accessing artifacts and metadata
-A `Model` object includes model artifacts, such as ONNX, tflite, calibration range in yaml format, and ENF.
+A `Model` object includes model artifacts, such as ONNX, tflite, mapping from a tensor name to the tensor's min and max, and ENF.
 
 ENF format is [FuriosaAI Compiler](https://furiosa-ai.github.io/docs/latest/en/software/compiler.html) specific format.
 Once you have the ENF file, you can reuse it to omit the compilation process that take up to minutes.
@@ -27,6 +27,7 @@ In addition, a `Model` object has various metadata. The followings are all attri
 ::: furiosa.models.types.Model
     options:
         show_source: true
+        show_symbol_type_toc: true
 
 
 ## Inferencing with Session API
@@ -40,19 +41,15 @@ To create a session, pass the `enf` field of the model object to the furiosa.run
     * [Python SDK Installation and User Guide](https://furiosa-ai.github.io/docs/latest/en/software/python-sdk.html)
     * [Furiosa SDK - Tutorial and Code Examples](https://furiosa-ai.github.io/docs/latest/en/software/tutorials.html)
 
-Passing `Model.source` to `session.create()` allows users to start from source models in ONNX or tflite and customize models to their specific use-cases. This customization includes options such as specifying batch sizes and compiler configurations for optimization purposes. For additional information on Model.source, please refer to [Accessing artifacts and metadata](#accessing_artifacts_and_metadata).
+Passing `Model.origin` to `session.create()` allows users to start from source models in ONNX or tflite and customize models to their specific use-cases. This customization includes options such as specifying batch sizes and compiler configurations for optimization purposes. For additional information on Model.origin, please refer to [Accessing artifacts and metadata](#accessing_artifacts_and_metadata).
 
 To utilize f32 source models, it is necessary to perform calibration and quantization.
 Pre-calibrated data is readily available in Furiosa-models, facilitating direct access to the quantization process.
 For manual quantization of the model, you can install the `furiosa-quantizer` package, which can be found at this  [package link](https://furiosa-ai.github.io/docs/latest/en/software/python-sdk.html#quantizer).
-The calib_range field of the model class represents this pre-calibrated data.
+The tensor_name_to_range field of the model class represents this pre-calibrated data.
 After quantization, the output will be in the form of FuriosaAI's IR which can then be passed to the session.
 At this stage, the compiler configuration can be specified.
 
-
-!!!Info
-    The calibration range field is actually in yaml format but serialized in string type.
-    To deserialize the calibration range, use `import yaml; yaml.full_load(calib_range)`.
 
 <a name="Examples"></a>
 !!! Example
@@ -98,7 +95,8 @@ In sum, typical steps of a single inference is as the following, as also shown a
     such as CPU cache, SIMD instructions and CPU pipelining.
     According to our benchmark, the native implementations show at most 70% lower latency.
 
-    To use native post processor, please pass `use_native=True` to `Model.load()` or `Model.load_async()`.
+    To use native post processor, please pass `postprocessor_type=Platform.RUST` to `Model()`.
+
     The following is an example to use native post processor for [SSDMobileNet](models/ssd_mobilenet.md).
     You can find more details of each model page.
 
